@@ -3,6 +3,10 @@
 #include <Limelight.h>
 #include <SDL.h>
 
+#ifdef Q_OS_WIN
+#include <Windows.h>
+#endif
+
 #define VK_0 0x30
 #define VK_A 0x41
 
@@ -434,4 +438,75 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                         event->state == SDL_PRESSED ?
                             KEY_ACTION_DOWN : KEY_ACTION_UP,
                         modifiers);
+}
+
+void SdlInputHandler::syncModifierKeyState()
+{
+    // This is a workaround for the Windows low-level keyboard hook (WH_KEYBOARD_LL)
+    // used by SDL_SetWindowKeyboardGrab() potentially missing key-up events.
+    // When that happens, modifier keys get "stuck" on the remote host.
+    // We detect this by comparing our tracked state with the actual physical key state.
+    if (!isSystemKeyCaptureActive()) {
+        return;
+    }
+
+    struct ModifierKeyCheck {
+        short keyCode;
+#ifdef Q_OS_WIN
+        int vkCode;
+#endif
+    };
+
+    static const ModifierKeyCheck checks[] = {
+#ifdef Q_OS_WIN
+        { 0xA0, VK_LSHIFT },
+        { 0xA1, VK_RSHIFT },
+        { 0xA2, VK_LCONTROL },
+        { 0xA3, VK_RCONTROL },
+        { 0xA4, VK_LMENU },
+        { 0xA5, VK_RMENU },
+#else
+        { 0xA0 },
+        { 0xA1 },
+        { 0xA2 },
+        { 0xA3 },
+        { 0xA4 },
+        { 0xA5 },
+#endif
+    };
+
+#ifndef Q_OS_WIN
+    SDL_Keymod sdlModState = SDL_GetModState();
+
+    // Map VK codes to SDL modifier flags for non-Windows platforms
+    static const SDL_Keymod sdlModMap[] = {
+        KMOD_LSHIFT,  // 0xA0
+        KMOD_RSHIFT,  // 0xA1
+        KMOD_LCTRL,   // 0xA2
+        KMOD_RCTRL,   // 0xA3
+        KMOD_LALT,    // 0xA4
+        KMOD_RALT,    // 0xA5
+    };
+#endif
+
+    for (int i = 0; i < (int)(sizeof(checks) / sizeof(checks[0])); i++) {
+        if (!m_KeysDown.contains(checks[i].keyCode)) {
+            continue;
+        }
+
+        bool physicallyPressed;
+#ifdef Q_OS_WIN
+        physicallyPressed = (GetAsyncKeyState(checks[i].vkCode) & 0x8000) != 0;
+#else
+        physicallyPressed = (sdlModState & sdlModMap[i]) != 0;
+#endif
+
+        if (!physicallyPressed) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "Detected stuck modifier key 0x%x, sending key-up",
+                        checks[i].keyCode);
+            m_KeysDown.remove(checks[i].keyCode);
+            LiSendKeyboardEvent(0x8000 | checks[i].keyCode, KEY_ACTION_UP, 0);
+        }
+    }
 }

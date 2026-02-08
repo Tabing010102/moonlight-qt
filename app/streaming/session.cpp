@@ -1977,6 +1977,7 @@ void Session::execInternal()
         // and other problems.
         if (!SDL_WaitEventTimeout(&event, 1000)) {
             presence.runCallbacks();
+            m_InputHandler->syncModifierKeyState();
             continue;
         }
 #else
@@ -1993,6 +1994,7 @@ void Session::execInternal()
             SDL_Delay(10);
 #endif
             presence.runCallbacks();
+            m_InputHandler->syncModifierKeyState();
             continue;
         }
 #endif

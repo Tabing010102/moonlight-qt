@@ -101,6 +101,8 @@ public:
 
     void raiseAllKeys();
 
+    void syncModifierKeyState();
+
     void notifyMouseLeave();
 
     void notifyFocusLost();
